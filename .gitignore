@@ -1,0 +1,8 @@
+venv/
+*.sh
+*.nginx
+*.log
+*.service
+__pycache__
+*.nginx.conf
+certs/
