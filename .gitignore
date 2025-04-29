@@ -6,3 +6,4 @@ venv/
 __pycache__
 *.nginx.conf
 certs/
+wladbot-nginx.conf
