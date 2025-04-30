@@ -1,10 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
 venv/
+
+# Flask
+instance/
+
+# Environment variables
+.env
+.env.*
+
+# Certificates
+certs/
+
+# Logs
+*.log
+
 *.sh
 *.nginx
-*.log
 *.service
-__pycache__
 *.nginx.conf
-certs/
 wladbot-nginx.conf
-.env
