@@ -17,6 +17,9 @@ if __name__ == '__main__':
     cert_path = os.path.join('certs', 'cert.pem')
     key_path = os.path.join('certs', 'key.pem')
     
+    # Determine port - use 8443 for HTTPS
+    port = int(os.environ.get('PORT', 8443))
+    
     if os.path.exists(cert_path) and os.path.exists(key_path):
         # Create an SSL context for eventlet
         ssl_args['certfile'] = cert_path
@@ -26,20 +29,16 @@ if __name__ == '__main__':
         print(f"SSL certificates not found at {cert_path} and {key_path}")
         print("Running without HTTPS (not recommended)")
     
-    # Determine port
-    port = int(os.environ.get('PORT', 8443))
-    
     print(f"Starting development server on {'https' if ssl_args else 'http'}://localhost:{port}")
     print("Press Ctrl+C to stop")
     
-    # Run the development server
-    # When using eventlet directly, we need to pass certfile/keyfile instead of ssl_context
+    # Run the development server with improved reliability settings
     socketio.run(
         app,
         host='0.0.0.0',
         port=port,
         debug=True,
         **ssl_args,  # Pass SSL arguments directly
-        use_reloader=True,
+        use_reloader=False,  # Disable reloader for stability
         allow_unsafe_werkzeug=True
     ) 
