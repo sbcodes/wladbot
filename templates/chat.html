@@ -76,6 +76,18 @@
             word-wrap: break-word;
         }
         
+        /* Bot Message Styling */
+        .bot-message {
+            background-color: #f0f7ff;
+            border-radius: 8px;
+            padding: 10px;
+            border-left: 3px solid #4a90e2;
+        }
+        
+        .bot-username {
+            color: #2a6db3;
+        }
+        
         .input-area {
             padding: 15px;
             display: flex;
@@ -137,9 +149,9 @@
         <div class="chat-window" id="chat-window">
             <!-- Messages will be added here dynamically -->
             {% for msg in messages %}
-            <div class="message">
+            <div class="message {% if msg.username == 'WladBot' %}bot-message{% endif %}">
                 <div class="message-header">
-                    <span class="message-username">{{ msg.username }}</span>
+                    <span class="message-username {% if msg.username == 'WladBot' %}bot-username{% endif %}">{{ msg.username }}</span>
                     <span class="message-timestamp">{{ msg.timestamp }}</span>
                 </div>
                 <div class="message-content">{{ msg.message }}</div>
@@ -247,11 +259,22 @@
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message';
                 
+                // Add bot message class if it's from WladBot
+                if (msg.username === 'WladBot') {
+                    messageDiv.classList.add('bot-message');
+                }
+                
                 const headerDiv = document.createElement('div');
                 headerDiv.className = 'message-header';
                 
                 const usernameSpan = document.createElement('span');
                 usernameSpan.className = 'message-username';
+                
+                // Add bot username class if it's from WladBot
+                if (msg.username === 'WladBot') {
+                    usernameSpan.classList.add('bot-username');
+                }
+                
                 usernameSpan.textContent = msg.username;
                 
                 const timestampSpan = document.createElement('span');

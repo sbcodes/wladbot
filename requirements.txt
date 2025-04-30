@@ -8,4 +8,5 @@ eventlet==0.33.3
 psycopg2-binary==2.9.10
 SQLAlchemy==2.0.40
 Flask-SQLAlchemy==3.1.1
-sqlalchemy-utils==0.41.2 
+sqlalchemy-utils==0.41.2
+openai==1.12.0 

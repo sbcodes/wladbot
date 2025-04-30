@@ -9,6 +9,7 @@ import bcrypt
 import json
 from datetime import datetime
 from models import db, Message
+import openai
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,11 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
+
+# Set up OpenAI API key
+openai.api_key = os.environ.get('OPENAI_API_KEY')
+if not openai.api_key:
+    logger.warning("OPENAI_API_KEY not set! AI responses will not work.")
 
 # Set up database
 database_url = os.environ.get('DATABASE_URL')
@@ -64,6 +70,7 @@ logger.info(f"PORT = {os.environ.get('PORT', '8080')}")
 logger.info(f"SECRET_KEY set = {'Yes' if os.environ.get('SECRET_KEY') else 'No'}")
 logger.info(f"HASHED_PASSWORD set = {'Yes' if os.environ.get('HASHED_PASSWORD') else 'No'}")
 logger.info(f"DATABASE_URL = {database_url}")
+logger.info(f"OPENAI_API_KEY set = {'Yes' if os.environ.get('OPENAI_API_KEY') else 'No'}")
 
 # Make sure tables exist
 with app.app_context():
@@ -72,6 +79,26 @@ with app.app_context():
         logger.info("Database tables created if they didn't exist")
     except Exception as e:
         logger.error(f"Error creating database tables: {e}")
+
+def get_ai_response(user_message):
+    """Get response from OpenAI API"""
+    try:
+        if not openai.api_key:
+            return "Sorry, AI is not available. OPENAI_API_KEY is not set."
+        
+        client = openai.OpenAI(api_key=openai.api_key)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=500
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error getting AI response: {e}")
+        return f"Sorry, I couldn't process that request. Error: {str(e)}"
 
 @app.route('/')
 def login():
@@ -166,7 +193,7 @@ def handle_message(data):
             'timestamp': timestamp
         }
         
-        # Save message to database
+        # Save user message to database
         try:
             with app.app_context():
                 new_message = Message(content=message, username=username)
@@ -180,6 +207,24 @@ def handle_message(data):
         
         logger.debug(f"New message from {username}: {message}")
         emit('new_message', msg_data, broadcast=True)
+        
+        # Get AI response
+        ai_response = get_ai_response(message)
+        if ai_response:
+            # Save AI message to database with "WladBot" username
+            try:
+                with app.app_context():
+                    ai_message = Message(content=ai_response, username="WladBot")
+                    db.session.add(ai_message)
+                    db.session.commit()
+                    # Use the actual database ID and timestamp
+                    ai_msg_data = ai_message.to_dict()
+                    logger.debug(f"AI response saved to database with ID: {ai_message.id}")
+                    
+                    # Emit AI response to all clients
+                    emit('new_message', ai_msg_data, broadcast=True)
+            except Exception as e:
+                logger.error(f"Error saving AI response to database: {e}")
 
 if __name__ == '__main__':
     # Check if running on Google Cloud or locally
