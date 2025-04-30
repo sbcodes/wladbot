@@ -8,6 +8,7 @@ import sys
 import bcrypt
 import json
 from datetime import datetime
+from models import db, Message
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,16 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
 
+# Set up database
+database_url = os.environ.get('DATABASE_URL')
+if not database_url:
+    logger.warning("DATABASE_URL not set! Using in-memory SQLite database for development.")
+    database_url = "sqlite:///chat.db"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
 # Initialize Socket.IO with proper configuration
 socketio = SocketIO(
     app, 
@@ -36,9 +47,6 @@ socketio = SocketIO(
     logger=True,
     engineio_logger=True
 )
-
-# Message storage - in a real app, you'd use a database
-messages = []
 
 # Get the hashed password from environment variable or use default
 # The password should be stored as a hash in the environment variable
@@ -55,6 +63,15 @@ logger.info(f"GOOGLE_CLOUD = {os.environ.get('GOOGLE_CLOUD', False)}")
 logger.info(f"PORT = {os.environ.get('PORT', '8080')}")
 logger.info(f"SECRET_KEY set = {'Yes' if os.environ.get('SECRET_KEY') else 'No'}")
 logger.info(f"HASHED_PASSWORD set = {'Yes' if os.environ.get('HASHED_PASSWORD') else 'No'}")
+logger.info(f"DATABASE_URL = {database_url}")
+
+# Make sure tables exist
+with app.app_context():
+    try:
+        db.create_all()
+        logger.info("Database tables created if they didn't exist")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {e}")
 
 @app.route('/')
 def login():
@@ -94,9 +111,14 @@ def chat():
     if 'authenticated' not in session:
         logger.debug("User not authenticated, redirecting to login")
         return redirect(url_for('login'))
-    username = session.get('username', 'You')
+    username = session.get('username', 'Anonymous')
     logger.debug(f"Chat route accessed by {username}")
-    return render_template('chat.html', username=username, messages=messages)
+    
+    # Get recent messages from database
+    with app.app_context():
+        recent_messages = [msg.to_dict() for msg in Message.get_recent_messages()]
+    
+    return render_template('chat.html', username=username, messages=recent_messages)
 
 # Socket.IO event handlers
 @socketio.on('connect')
@@ -108,13 +130,16 @@ def handle_connect():
         logger.warning(f"Unauthenticated connection attempt: {request.sid}")
         return False
     
-    username = session.get('username', 'You')
+    username = session.get('username', 'Anonymous')
     logger.info(f"User {username} connected to socket: {request.sid}")
     
     # Join a room with the same name as the session ID
     join_room(request.sid)
     
     # Send existing messages to the client
+    with app.app_context():
+        messages = [msg.to_dict() for msg in Message.get_recent_messages()]
+    
     emit('message_history', messages)
 
 @socketio.on('disconnect')
@@ -130,7 +155,7 @@ def handle_message(data):
         logger.warning(f"Unauthenticated message attempt: {request.sid}")
         return
     
-    username = session.get('username', 'You')
+    username = session.get('username', 'Anonymous')
     message = data.get('message', '').strip()
     
     if message:
@@ -140,11 +165,18 @@ def handle_message(data):
             'message': message,
             'timestamp': timestamp
         }
-        messages.append(msg_data)
         
-        # Keep only the last 100 messages
-        while len(messages) > 100:
-            messages.pop(0)
+        # Save message to database
+        try:
+            with app.app_context():
+                new_message = Message(content=message, username=username)
+                db.session.add(new_message)
+                db.session.commit()
+                # Use the actual database ID and timestamp
+                msg_data = new_message.to_dict()
+                logger.debug(f"Message saved to database with ID: {new_message.id}")
+        except Exception as e:
+            logger.error(f"Error saving message to database: {e}")
         
         logger.debug(f"New message from {username}: {message}")
         emit('new_message', msg_data, broadcast=True)
