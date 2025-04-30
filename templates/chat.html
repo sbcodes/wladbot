@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Room</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background-color: #4a90e2;
+            color: white;
+            padding: 15px 20px;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        
+        .username {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .chat-window {
+            height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #f1f1f1;
+        }
+        
+        .message:last-child {
+            border-bottom: none;
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .message-username {
+            font-weight: bold;
+            color: #4a90e2;
+        }
+        
+        .message-content {
+            word-wrap: break-word;
+        }
+        
+        .input-area {
+            padding: 15px;
+            display: flex;
+        }
+        
+        #message-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        
+        button {
+            background-color: #4a90e2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #357ae8;
+        }
+
+        /* Status indicator */
+        .status {
+            padding: 10px;
+            text-align: center;
+            background-color: #f1f1f1;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .connected {
+            color: green;
+        }
+
+        .disconnected {
+            color: red;
+        }
+        
+        .reconnecting {
+            color: orange;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Chat Room</h1>
+            <span class="username">Logged in as: {{ username }}</span>
+        </div>
+        
+        <div class="status" id="connection-status">
+            Connecting...
+        </div>
+        
+        <div class="chat-window" id="chat-window">
+            <!-- Messages will be added here dynamically -->
+            {% for msg in messages %}
+            <div class="message">
+                <div class="message-header">
+                    <span class="message-username">{{ msg.username }}</span>
+                    <span class="message-timestamp">{{ msg.timestamp }}</span>
+                </div>
+                <div class="message-content">{{ msg.message }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div class="input-area">
+            <input type="text" id="message-input" placeholder="Type your message here..." autocomplete="off">
+            <button id="send-button">Send</button>
+        </div>
+    </div>
+
+    <!-- SocketIO JS Library -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatWindow = document.getElementById('chat-window');
+            const messageInput = document.getElementById('message-input');
+            const sendButton = document.getElementById('send-button');
+            const connectionStatus = document.getElementById('connection-status');
+            
+            // Get protocol based on whether we're using SSL or not
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            
+            // Configure Socket.IO with improved connection settings
+            const socket = io(`${protocol}//${window.location.host}`, {
+                withCredentials: true,
+                transports: ['websocket'],
+                upgrade: false,  // Stick with WebSocket, don't upgrade
+                reconnection: true,
+                reconnectionAttempts: 10,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                timeout: 20000
+            });
+            
+            // Connection status updates
+            socket.on('connect', function() {
+                console.log('Socket connected successfully');
+                connectionStatus.textContent = 'Connected';
+                connectionStatus.className = 'status connected';
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+            });
+            
+            socket.on('disconnect', function(reason) {
+                console.log('Socket disconnected:', reason);
+                connectionStatus.textContent = 'Disconnected - trying to reconnect...';
+                connectionStatus.className = 'status disconnected';
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+            });
+            
+            socket.on('reconnecting', function(attemptNumber) {
+                console.log('Reconnecting attempt:', attemptNumber);
+                connectionStatus.textContent = `Reconnecting... (Attempt ${attemptNumber})`;
+                connectionStatus.className = 'status reconnecting';
+            });
+            
+            socket.on('reconnect_failed', function() {
+                console.log('Reconnection failed');
+                connectionStatus.textContent = 'Failed to reconnect. Please refresh the page.';
+                connectionStatus.className = 'status disconnected';
+            });
+            
+            socket.on('error', function(error) {
+                console.error('Socket error:', error);
+            });
+            
+            // Handle existing message history
+            socket.on('message_history', function(messages) {
+                console.log('Received message history:', messages.length);
+                chatWindow.innerHTML = '';
+                if (messages && Array.isArray(messages)) {
+                    messages.forEach(addMessageToChat);
+                }
+                scrollToBottom();
+            });
+            
+            // Handle new incoming messages
+            socket.on('new_message', function(msg) {
+                console.log('New message received:', msg);
+                addMessageToChat(msg);
+                scrollToBottom();
+            });
+            
+            // Send message function
+            function sendMessage() {
+                const message = messageInput.value.trim();
+                if (message) {
+                    console.log('Sending message:', message);
+                    socket.emit('send_message', { message: message });
+                    messageInput.value = '';
+                }
+            }
+            
+            // Add message to chat window
+            function addMessageToChat(msg) {
+                if (!msg || !msg.username || !msg.message) {
+                    console.error('Invalid message format:', msg);
+                    return;
+                }
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message';
+                
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'message-header';
+                
+                const usernameSpan = document.createElement('span');
+                usernameSpan.className = 'message-username';
+                usernameSpan.textContent = msg.username;
+                
+                const timestampSpan = document.createElement('span');
+                timestampSpan.className = 'message-timestamp';
+                timestampSpan.textContent = msg.timestamp;
+                
+                headerDiv.appendChild(usernameSpan);
+                headerDiv.appendChild(timestampSpan);
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = msg.message;
+                
+                messageDiv.appendChild(headerDiv);
+                messageDiv.appendChild(contentDiv);
+                
+                chatWindow.appendChild(messageDiv);
+            }
+            
+            // Scroll to bottom of chat window
+            function scrollToBottom() {
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+            
+            // Make sure we start at the bottom of the chat
+            scrollToBottom();
+            
+            // Event listeners
+            sendButton.addEventListener('click', sendMessage);
+            
+            messageInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+        });
+    </script>
+</body>
+</html> 
