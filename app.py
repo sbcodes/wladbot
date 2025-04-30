@@ -111,7 +111,7 @@ def chat():
     if 'authenticated' not in session:
         logger.debug("User not authenticated, redirecting to login")
         return redirect(url_for('login'))
-    username = session.get('username', 'Anonymous')
+    username = session.get('username', 'You')
     logger.debug(f"Chat route accessed by {username}")
     
     # Get recent messages from database
@@ -130,7 +130,7 @@ def handle_connect():
         logger.warning(f"Unauthenticated connection attempt: {request.sid}")
         return False
     
-    username = session.get('username', 'Anonymous')
+    username = session.get('username', 'You')
     logger.info(f"User {username} connected to socket: {request.sid}")
     
     # Join a room with the same name as the session ID
@@ -155,7 +155,7 @@ def handle_message(data):
         logger.warning(f"Unauthenticated message attempt: {request.sid}")
         return
     
-    username = session.get('username', 'Anonymous')
+    username = session.get('username', 'You')
     message = data.get('message', '').strip()
     
     if message:
