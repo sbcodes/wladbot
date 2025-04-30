@@ -9,7 +9,7 @@ import bcrypt
 import json
 from datetime import datetime
 from models import db, Message
-import openai
+import random  # Add this import at the top of the file with other imports
 
 # Configure logging
 logging.basicConfig(
@@ -26,11 +26,6 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
-
-# Set up OpenAI API key
-openai.api_key = os.environ.get('OPENAI_API_KEY')
-if not openai.api_key:
-    logger.warning("OPENAI_API_KEY not set! AI responses will not work.")
 
 # Set up database
 database_url = os.environ.get('DATABASE_URL')
@@ -80,25 +75,123 @@ with app.app_context():
     except Exception as e:
         logger.error(f"Error creating database tables: {e}")
 
+# Define canned responses for when the API fails
+FALLBACK_RESPONSES = [
+    "I'm here to help! What can I assist you with today?",
+    "Hello! How can I make your day better?",
+    "Greetings! I'm WladBot, your friendly assistant.",
+    "Hello there! I'm ready to chat and help out.",
+    "Hi! I'm currently operating in offline mode, but I'll do my best to assist you.",
+    "Thanks for your message! How can I help you today?",
+    "I'm WladBot, your virtual assistant. What would you like to know?",
+    "Hello! I'm here to provide information and assistance.",
+    "Greetings! How may I be of service to you today?",
+    "Hello! I'm in offline mode right now, but I'll try to help with simple queries."
+]
+
+def get_fallback_response(user_message):
+    """Get a fallback response when the API call fails"""
+    # Check for greetings
+    lower_msg = user_message.lower()
+    if any(greeting in lower_msg for greeting in ['hello', 'hi', 'hey', 'greetings']):
+        return random.choice([
+            "Hello there! Nice to meet you.",
+            "Hi! How can I help you today?",
+            "Hey! I'm WladBot. What can I do for you?",
+            "Greetings! How may I assist you?"
+        ])
+    
+    # Check for questions about capabilities
+    if any(phrase in lower_msg for phrase in ['what can you do', 'help me with', 'your capabilities']):
+        return "I can help with information, answer questions, or just chat! Though I'm running in offline mode right now, so my capabilities are limited."
+    
+    # Check for thanks/gratitude
+    if any(phrase in lower_msg for phrase in ['thank', 'thanks', 'appreciate']):
+        return random.choice([
+            "You're welcome! Happy to help.",
+            "Anytime! Let me know if you need anything else.",
+            "Glad I could assist! Is there anything else you'd like to know?"
+        ])
+    
+    # Default response
+    return random.choice(FALLBACK_RESPONSES)
+
 def get_ai_response(user_message):
-    """Get response from OpenAI API"""
+    """Get response from OpenAI API using direct HTTP requests instead of the OpenAI SDK"""
     try:
-        if not openai.api_key:
-            return "Sorry, AI is not available. OPENAI_API_KEY is not set."
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            logger.warning("OPENAI_API_KEY not set! Using fallback responses.")
+            return get_fallback_response(user_message)
         
-        client = openai.OpenAI(api_key=openai.api_key)
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+        # Use requests library instead of OpenAI SDK
+        import requests
+        import json
+        
+        logger.info("Preparing to send request to OpenAI API...")
+        
+        # OpenAI API endpoint
+        url = "https://api.openai.com/v1/chat/completions"
+        
+        # Request headers
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        # Request body
+        data = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant named WladBot."},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=500
+            "max_tokens": 500
+        }
+        
+        logger.info("Sending request to OpenAI API...")
+        
+        # Make the API request with a shorter timeout
+        response = requests.post(
+            url, 
+            headers=headers, 
+            json=data, 
+            timeout=10  # Reduced timeout from 30 to 10 seconds
         )
-        return response.choices[0].message.content.strip()
+        
+        logger.info(f"Received response from OpenAI API: Status {response.status_code}")
+        
+        # Check if the request was successful
+        if response.status_code == 200:
+            # Parse the response
+            response_data = response.json()
+            # Extract the message content
+            ai_response = response_data["choices"][0]["message"]["content"].strip()
+            logger.info(f"Successful response from OpenAI API: {ai_response[:50]}...")
+            return ai_response
+        else:
+            # Handle API error
+            error_message = f"API Error: {response.status_code} - {response.text}"
+            logger.error(error_message)
+            logger.info("Using fallback response due to API error.")
+            return get_fallback_response(user_message)
+            
+    except requests.exceptions.Timeout:
+        error_message = "Request to OpenAI API timed out"
+        logger.error(error_message)
+        logger.info("Using fallback response due to timeout.")
+        return get_fallback_response(user_message)
+        
+    except requests.exceptions.ConnectionError as e:
+        error_message = f"Connection error when connecting to OpenAI API: {str(e)}"
+        logger.error(error_message)
+        logger.info("Using fallback response due to connection error.")
+        return get_fallback_response(user_message)
+            
     except Exception as e:
         logger.error(f"Error getting AI response: {e}")
-        return f"Sorry, I couldn't process that request. Error: {str(e)}"
+        logger.info("Using fallback response due to exception.")
+        return get_fallback_response(user_message)
 
 @app.route('/')
 def login():
