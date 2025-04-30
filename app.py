@@ -1,8 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session
+from dotenv import load_dotenv
 import os
 import socket
 import logging
 import sys
+import bcrypt
 
 # Configure logging
 logging.basicConfig(
@@ -15,17 +17,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+load_dotenv()
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
 
-# In a real application, you would store this securely and use proper password hashing
-PASSWORD = os.environ.get('APP_PASSWORD', "password123")  # Get from env var or use default
+# Get the hashed password from environment variable or use default
+# The password should be stored as a hash in the environment variable
+HASHED_PASSWORD = os.environ.get('HASHED_PASSWORD')
+DEFAULT_PASSWORD = "password123"  # This is just for demonstration
+
+# If no hashed password is provided, hash the default password
+if not HASHED_PASSWORD:
+    HASHED_PASSWORD = bcrypt.hashpw(DEFAULT_PASSWORD.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    logger.warning("Using default password! This is insecure. Set HASHED_PASSWORD in environment variables.")
 
 logger.info("Starting application with configuration:")
 logger.info(f"GOOGLE_CLOUD = {os.environ.get('GOOGLE_CLOUD', False)}")
 logger.info(f"PORT = {os.environ.get('PORT', '8080')}")
 logger.info(f"SECRET_KEY set = {'Yes' if os.environ.get('SECRET_KEY') else 'No'}")
-logger.info(f"APP_PASSWORD set = {'Yes' if os.environ.get('APP_PASSWORD') else 'No'}")
+logger.info(f"HASHED_PASSWORD set = {'Yes' if os.environ.get('HASHED_PASSWORD') else 'No'}")
 
 @app.route('/')
 def login():
@@ -40,10 +51,13 @@ def login():
 def login_post():
     logger.debug(f"Login attempt - IP: {request.remote_addr}")
     password = request.form.get('password')
-    if password == PASSWORD:
+    
+    # Check if the provided password matches the stored hash
+    if bcrypt.checkpw(password.encode('utf-8'), HASHED_PASSWORD.encode('utf-8')):
         logger.info(f"Successful login from {request.remote_addr}")
         session['authenticated'] = True
         return redirect(url_for('index'))
+    
     logger.warning(f"Failed login attempt from {request.remote_addr}")
     return render_template('login.html', error="Invalid password")
 
