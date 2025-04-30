@@ -10,6 +10,34 @@ from sqlalchemy_utils import database_exists, create_database
 from models import db, Message
 from flask import Flask
 import urllib.parse
+import re
+
+def fix_database_url(url):
+    """Properly parse and fix a PostgreSQL connection URL with special characters"""
+    try:
+        # Extract components using regex to avoid splitting problems
+        match = re.match(r'postgresql://([^:]+):([^@]+)@([^/]+)/(.+)', url)
+        if not match:
+            print(f"Warning: Could not parse DATABASE_URL format: {url[:10]}...")
+            return url
+        
+        username, password, host, dbname = match.groups()
+        
+        # URL encode the password
+        encoded_password = urllib.parse.quote_plus(password)
+        
+        # Reconstruct the URL
+        fixed_url = f"postgresql://{username}:{encoded_password}@{host}/{dbname}"
+        
+        # Print diagnostic info without exposing actual password
+        print(f"Original URL pattern: postgresql://{username}:****@{host}/{dbname}")
+        print(f"Fixed URL pattern: postgresql://{username}:****@{host}/{dbname}")
+        print(f"Password encoding changed: {'Yes' if password != encoded_password else 'No'}")
+        
+        return fixed_url
+    except Exception as e:
+        print(f"Warning: Error fixing DATABASE_URL: {e}")
+        return url
 
 def init_db():
     load_dotenv()
@@ -22,26 +50,8 @@ def init_db():
         print("Example: DATABASE_URL=postgresql://username:password@localhost/dbname")
         sys.exit(1)
     
-    # Parse and fix the database URL if it contains special characters
-    if "@" in database_url:
-        try:
-            # Parse the URL components
-            scheme = database_url.split("://")[0]
-            rest = database_url.split("://")[1]
-            
-            # Extract username, password, host, and dbname
-            credentials, connection = rest.split("@", 1)
-            if ":" in credentials:
-                username, password = credentials.split(":", 1)
-                # URL encode the password
-                password = urllib.parse.quote_plus(password)
-                credentials = f"{username}:{password}"
-            
-            # Reconstruct the URL
-            database_url = f"{scheme}://{credentials}@{connection}"
-            print(f"Fixed DATABASE_URL: {database_url}")
-        except Exception as e:
-            print(f"Warning: Could not parse DATABASE_URL for fixing special characters: {e}")
+    # Fix the database URL
+    database_url = fix_database_url(database_url)
     
     try:
         # Create a minimal Flask app just for database initialization
@@ -57,7 +67,9 @@ def init_db():
             engine = create_engine(database_url)
             if not database_exists(engine.url):
                 create_database(engine.url)
-                print(f"Created database at {database_url.split('@')[1] if '@' in database_url else database_url}")
+                host = database_url.split('@')[1].split('/')[0]
+                dbname = database_url.split('/')[-1]
+                print(f"Created database at {host}/{dbname}")
             
             # Create tables
             db.create_all()
