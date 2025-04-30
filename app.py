@@ -140,35 +140,19 @@ def get_ai_response(user_message):
                 
             logger.info(f"Sending request to OpenAI API with message: '{user_message[:30]}...'")
             
-            # Make the API request - handle both client versions
-            if pkg_resources.parse_version(openai_version) >= pkg_resources.parse_version("1.0.0"):
-                # New client version (>=1.0.0)
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # More reliable model
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant named WladBot."},
-                        {"role": "user", "content": user_message}
-                    ],
-                    temperature=0.7,
-                    timeout=20.0  # Set a reasonable timeout
-                )
-                
-                # Extract the response content
-                ai_response = response.choices[0].message.content.strip()
-            else:
-                # Old client version (<1.0.0)
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant named WladBot."},
-                        {"role": "user", "content": user_message}
-                    ],
-                    temperature=0.7
-                )
-                
-                # Extract the response content for old client
-                ai_response = response["choices"][0]["message"]["content"].strip()
-                
+            # Make the API request
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant named WladBot."},
+                    {"role": "user", "content": user_message}
+                ],
+                temperature=0.7,
+                timeout=20.0  # Set a reasonable timeout
+            )
+            
+            # Extract the response content
+            ai_response = response.choices[0].message.content.strip()
             logger.info(f"Successfully received response: '{ai_response[:50]}...'")
             return ai_response
             
