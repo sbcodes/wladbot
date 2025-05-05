@@ -75,7 +75,7 @@ with app.app_context():
         logger.error(f"Error creating database tables: {e}")
 
 def get_ai_response(user_message):
-    """Get response from OpenAI API using direct request approach"""
+    """Get response from OpenAI API using direct HTTP requests"""
     try:
         # Log the start of the function
         logger.info("=== Starting OpenAI API request ===")
@@ -86,33 +86,42 @@ def get_ai_response(user_message):
             logger.warning("OPENAI_API_KEY not set!")
             return "Sorry, I'm temporarily unavailable. Please try again later."
 
-        # Use the OpenAI library directly (don't modify DNS)
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        # Import requests library
+        import requests
         
-        try:
-            logger.info(f"Sending request to OpenAI API with message: '{user_message[:30]}...'")
-            
-            # Make the API request with increased timeout
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant named WladBot."},
-                    {"role": "user", "content": user_message}
-                ],
-                temperature=0.7,
-                timeout=60.0  # Increase timeout
-            )
-            
-            # Extract the response content
-            ai_response = response.choices[0].message.content.strip()
+        # Set up the request
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant named WladBot."},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.7
+        }
+        
+        # Make the direct API request without using the OpenAI client
+        logger.info(f"Sending direct HTTP request to OpenAI API with message: '{user_message[:30]}...'")
+        response = requests.post(
+            url="https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=60  # Longer timeout
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            ai_response = result["choices"][0]["message"]["content"].strip()
             logger.info(f"Successfully received response: '{ai_response[:50]}...'")
             return ai_response
-            
-        except Exception as api_error:
-            logger.error(f"API request failed: {api_error}")
+        else:
+            logger.error(f"API request failed with status {response.status_code}: {response.text}")
             return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment."
-    
+            
     except Exception as e:
         logger.error(f"Unexpected error in get_ai_response: {e}")
         return "I apologize, but I'm experiencing a technical issue right now. Please try again in a few minutes."
