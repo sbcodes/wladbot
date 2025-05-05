@@ -75,7 +75,7 @@ with app.app_context():
         logger.error(f"Error creating database tables: {e}")
 
 def get_ai_response(user_message):
-    """Get response from OpenAI API using hostfile modification approach to bypass DNS issues"""
+    """Get response from OpenAI API using direct request approach"""
     try:
         # Log the start of the function
         logger.info("=== Starting OpenAI API request ===")
@@ -86,61 +86,14 @@ def get_ai_response(user_message):
             logger.warning("OPENAI_API_KEY not set!")
             return "Sorry, I'm temporarily unavailable. Please try again later."
 
-        # Import required modules
-        import requests
-        import random
-        import socket
-        import time
-        
-        # CloudFlare IPs for api.openai.com - use these to modify hosts file
-        OPENAI_IPS = [
-            "172.67.1.243",
-            "104.18.6.192",
-            "104.18.7.192"
-        ]
-        
-        # Select the best IP (use a random one for simplicity)
-        selected_ip = random.choice(OPENAI_IPS)
-        logger.info(f"Selected IP {selected_ip} for api.openai.com")
-        
-        # Temporarily modify the hosts resolution in memory
-        # Store the original socket.getaddrinfo for later restoration
-        original_getaddrinfo = socket.getaddrinfo
-        
-        def patched_getaddrinfo(host, port, *args, **kwargs):
-            """Patch getaddrinfo to return our IP for api.openai.com"""
-            if host == 'api.openai.com':
-                logger.info(f"Patching DNS lookup for api.openai.com to use {selected_ip}")
-                # Return IPv4 address info in the expected format
-                return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, '', (selected_ip, port))]
-            # For all other hosts, use the original implementation
-            return original_getaddrinfo(host, port, *args, **kwargs)
-        
-        # Apply the patch
-        socket.getaddrinfo = patched_getaddrinfo
+        # Use the OpenAI library directly (don't modify DNS)
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
         
         try:
-            # Create a basic OpenAI client with standard configuration
-            from openai import OpenAI
-            import pkg_resources
-            
-            # Get OpenAI package version to determine available parameters
-            openai_version = pkg_resources.get_distribution("openai").version
-            logger.info(f"OpenAI package version: {openai_version}")
-            
-            # Create client with version-appropriate arguments
-            if pkg_resources.parse_version(openai_version) >= pkg_resources.parse_version("1.0.0"):
-                # New version of the OpenAI client
-                client = OpenAI(api_key=api_key)
-            else:
-                # Old version of the OpenAI client
-                import openai
-                openai.api_key = api_key
-                # Use the older client style
-                
             logger.info(f"Sending request to OpenAI API with message: '{user_message[:30]}...'")
             
-            # Make the API request
+            # Make the API request with increased timeout
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -148,7 +101,7 @@ def get_ai_response(user_message):
                     {"role": "user", "content": user_message}
                 ],
                 temperature=0.7,
-                timeout=20.0  # Set a reasonable timeout
+                timeout=60.0  # Increase timeout
             )
             
             # Extract the response content
@@ -159,19 +112,9 @@ def get_ai_response(user_message):
         except Exception as api_error:
             logger.error(f"API request failed: {api_error}")
             return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment."
-        finally:
-            # Always restore the original socket.getaddrinfo function
-            socket.getaddrinfo = original_getaddrinfo
-            logger.info("Restored original DNS resolution")
     
     except Exception as e:
         logger.error(f"Unexpected error in get_ai_response: {e}")
-        # Try to restore socket function if there was an error
-        try:
-            socket.getaddrinfo = original_getaddrinfo
-            logger.info("Restored original DNS resolution after error")
-        except:
-            pass
         return "I apologize, but I'm experiencing a technical issue right now. Please try again in a few minutes."
 
 @app.route('/')
