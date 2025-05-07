@@ -9,6 +9,7 @@ import bcrypt
 import json
 from datetime import datetime
 from models import db, Message
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
+client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
 # Set up database
 database_url = os.environ.get('DATABASE_URL')
@@ -75,53 +77,34 @@ with app.app_context():
         logger.error(f"Error creating database tables: {e}")
 
 def get_ai_response(user_message):
-    """Get response from OpenAI API using direct HTTP requests"""
+    """Get response from OpenAI API using direct request approach"""
     try:
         # Log the start of the function
         logger.info("=== Starting OpenAI API request ===")
-        
-        # Get the API key
-        api_key = os.environ.get('OPENAI_API_KEY')
-        if not api_key:
-            logger.warning("OPENAI_API_KEY not set!")
-            return "Sorry, I'm temporarily unavailable. Please try again later."
-
-        # Import requests library
-        import requests
-        
-        # Set up the request
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": "gpt-4o",
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant named WladBot."},
-                {"role": "user", "content": user_message}
-            ],
-            "temperature": 0.7
-        }
-        
-        # Make the direct API request without using the OpenAI client
-        logger.info(f"Sending direct HTTP request to OpenAI API with message: '{user_message[:30]}...'")
-        response = requests.post(
-            url="https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=60  # Longer timeout
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            ai_response = result["choices"][0]["message"]["content"].strip()
+        try:
+            logger.info(f"Sending request to OpenAI API with message: '{user_message[:30]}...'")
+            
+            # Make the API request with increased timeout
+            response = client.chat.completions.create(
+                # model="gpt-4o",
+                model="sonar",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant named WladBot."},
+                    {"role": "user", "content": user_message}
+                ],
+                # temperature=0.7,
+                # timeout=60.0
+            )
+            
+            # Extract the response content
+            ai_response = response.choices[0].message.content.strip()
             logger.info(f"Successfully received response: '{ai_response[:50]}...'")
             return ai_response
-        else:
-            logger.error(f"API request failed with status {response.status_code}: {response.text}")
-            return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment."
             
+        except Exception as api_error:
+            logger.error(f"API request failed: {api_error}")
+            return "I'm sorry, I'm having trouble connecting right now. Please try again in a moment."
+    
     except Exception as e:
         logger.error(f"Unexpected error in get_ai_response: {e}")
         return "I apologize, but I'm experiencing a technical issue right now. Please try again in a few minutes."
@@ -165,7 +148,7 @@ def chat():
         logger.debug("User not authenticated, redirecting to login")
         return redirect(url_for('login'))
     username = session.get('username', 'You')
-    logger.debug(f"Chat route accessed by {username}")
+    # logger.debug(f"Chat route accessed by {username}")
     
     # Get recent messages from database
     with app.app_context():
@@ -176,7 +159,7 @@ def chat():
 # Socket.IO event handlers
 @socketio.on('connect')
 def handle_connect():
-    logger.debug(f"Client connected: {request.sid}")
+    # logger.debug(f"Client connected: {request.sid}")
     
     # Get session from cookie for Socket.IO
     if 'authenticated' not in session:
@@ -184,7 +167,7 @@ def handle_connect():
         return False
     
     username = session.get('username', 'You')
-    logger.info(f"User {username} connected to socket: {request.sid}")
+    # logger.info(f"User {username} connected to socket: {request.sid}")
     
     # Join a room with the same name as the session ID
     join_room(request.sid)
@@ -210,6 +193,7 @@ def handle_message(data):
     
     username = 'You'
     message = data.get('message', '').strip()
+    print(">>>>>>>>>>>>>>>>message", message)
     
     if message:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -220,22 +204,25 @@ def handle_message(data):
         }
         
         # Save user message to database
-        try:
-            with app.app_context():
-                new_message = Message(content=message, username=username)
-                db.session.add(new_message)
-                db.session.commit()
-                # Use the actual database ID and timestamp
-                msg_data = new_message.to_dict()
-                logger.debug(f"Message saved to database with ID: {new_message.id}")
-        except Exception as e:
-            logger.error(f"Error saving message to database: {e}")
+        # try:
+        #     with app.app_context():
+        #         new_message = Message(content=message, username=username)
+        #         db.session.add(new_message)
+        #         db.session.commit()
+        #         # Use the actual database ID and timestamp
+        #         msg_data = new_message.to_dict()
+        #         logger.debug(f"Message saved to database with ID: {new_message.id}")
+        # except Exception as e:
+        #     logger.error(f"Error saving message to database: {e}")
         
-        logger.debug(f"New message from {username}: {message}")
-        emit('new_message', msg_data, broadcast=True)
+        # logger.debug(f"New message from {username}: {message}")
+        # emit('new_message', msg_data, broadcast=True)
         
         # Get AI response
         ai_response = get_ai_response(message)
+
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>ai_res===", ai_response)
+
         if ai_response:
             # Save AI message to database with "WladBot" username
             try:

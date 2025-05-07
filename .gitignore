@@ -38,4 +38,4 @@ certs/
 *.nginx
 *.service
 *.nginx.conf
-wladbot-nginx.conf
+util/wladbot-nginx.conf
