@@ -1,12 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, session
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, emit, join_room
 from dotenv import load_dotenv
 import os
-import socket
 import logging
 import sys
 import bcrypt
-import json
 from datetime import datetime
 from models import db, Message
 from openai import OpenAI
@@ -26,7 +24,12 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Get from env var or generate
-client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+open_ai_api_key = os.environ.get('OPENAI_API_KEY')
+print("open_ai_api_key=", open_ai_api_key)
+
+client = OpenAI(
+    api_key=open_ai_api_key
+)
 
 # Set up database
 database_url = os.environ.get('DATABASE_URL')
@@ -46,7 +49,7 @@ socketio = SocketIO(
     ping_timeout=60,
     ping_interval=25,
     async_mode='eventlet',  # Explicitly use eventlet
-    logger=True,
+    logger=False,
     engineio_logger=True
 )
 
@@ -80,23 +83,26 @@ def get_ai_response(user_message):
     """Get response from OpenAI API using direct request approach"""
     try:
         # Log the start of the function
-        logger.info("=== Starting OpenAI API request ===")
+        logger.info("=== Starting OpenAI API request1 ===")
         try:
             logger.info(f"Sending request to OpenAI API with message: '{user_message[:30]}...'")
             
             # Make the API request with increased timeout
             response = client.chat.completions.create(
-                # model="gpt-4o",
-                model="sonar",
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant named WladBot."},
                     {"role": "user", "content": user_message}
                 ],
-                # temperature=0.7,
-                # timeout=60.0
+                temperature=0.7,
+                timeout=60.0
             )
             
-            # Extract the response content
+            response = client.chat.completions.create(
+              model="gpt-4",
+              messages=[{"role": "user", "content": user_message}],
+              max_tokens=500,
+            )# Extract the response content
             ai_response = response.choices[0].message.content.strip()
             logger.info(f"Successfully received response: '{ai_response[:50]}...'")
             return ai_response
@@ -204,41 +210,30 @@ def handle_message(data):
         }
         
         # Save user message to database
-        # try:
-        #     with app.app_context():
-        #         new_message = Message(content=message, username=username)
-        #         db.session.add(new_message)
-        #         db.session.commit()
-        #         # Use the actual database ID and timestamp
-        #         msg_data = new_message.to_dict()
-        #         logger.debug(f"Message saved to database with ID: {new_message.id}")
-        # except Exception as e:
-        #     logger.error(f"Error saving message to database: {e}")
+        try:
+            with app.app_context():
+                new_message = Message(content=message, username=username)
+                db.session.add(new_message)
+                db.session.commit()
+                # Use the actual database ID and timestamp
+                msg_data = new_message.to_dict()
+                logger.debug(f"Message saved to database with ID: {new_message.id}")
+        except Exception as e:
+            logger.error(f"Error saving message to database: {e}")
         
-        # logger.debug(f"New message from {username}: {message}")
-        # emit('new_message', msg_data, broadcast=True)
+        logger.debug(f"New message from {username}: {message}")
+        emit('new_message', msg_data, broadcast=True)
+        socketio.start_background_task(handle_ai_reply, message)
         
-        # Get AI response
-        ai_response = get_ai_response(message)
-
-        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>ai_res===", ai_response)
-
-        if ai_response:
-            # Save AI message to database with "WladBot" username
-            try:
-                with app.app_context():
-                    ai_message = Message(content=ai_response, username="WladBot")
-                    db.session.add(ai_message)
-                    db.session.commit()
-                    # Use the actual database ID and timestamp
-                    ai_msg_data = ai_message.to_dict()
-                    logger.debug(f"AI response saved to database with ID: {ai_message.id}")
-                    
-                    # Emit AI response to all clients
-                    emit('new_message', ai_msg_data, broadcast=True)
-            except Exception as e:
-                logger.error(f"Error saving AI response to database: {e}")
-
+def handle_ai_reply(user_message):
+    ai_response = get_ai_response(user_message)
+    if ai_response:
+        with app.app_context():
+            ai_message = Message(content=ai_response, username="WladBot")
+            db.session.add(ai_message)
+            db.session.commit()
+            ai_msg_data = ai_message.to_dict()
+            socketio.emit('new_message', ai_msg_data,  namespace='/')
 if __name__ == '__main__':
     # Check if running on Google Cloud or locally
     is_cloud = os.environ.get('GOOGLE_CLOUD', False)
