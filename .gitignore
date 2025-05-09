@@ -39,3 +39,5 @@ certs/
 *.service
 *.nginx.conf
 util/wladbot-nginx.conf
+
+.idea/
